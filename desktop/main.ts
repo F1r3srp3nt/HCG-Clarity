@@ -11,8 +11,8 @@
  */
 import { app, BrowserWindow, dialog, ipcMain, Menu, protocol, safeStorage, session, shell, utilityProcess, type MenuItemConstructorOptions } from 'electron';
 import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
-import { readFile, writeFile } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, join } from 'node:path';
 import type { z } from 'zod';
 import { BackendManager } from './backend';
 import { CredentialError, CredentialStore, type Encryptor } from './credentials';
@@ -260,7 +260,7 @@ function registerIpc() {
       if (result.canceled || !result.filePath) return { saved: false as const };
       target = result.filePath.toLowerCase().endsWith(extension) ? result.filePath : `${result.filePath}${extension}`;
     }
-    await writeFile(target, bytes);
+    await writeFileAtomic(target, bytes);
     log(`[files] saved ${kind} (${bytes.byteLength} bytes)`);
     return { saved: true as const, fileName: basename(target) };
   });
@@ -284,6 +284,22 @@ function registerIpc() {
     log(`[files] opened project (${size} bytes)`);
     return { opened: true as const, fileName: basename(path), bytes };
   });
+}
+
+/**
+ * Writes to a temporary file in the same folder, then renames it over the target. The target is
+ * therefore either the previous file or the complete new one: a crash or a full disk never leaves a
+ * truncated project or export, and nothing can read a half-written file.
+ */
+async function writeFileAtomic(target: string, bytes: Uint8Array): Promise<void> {
+  const tmp = join(dirname(target), `.${basename(target)}.${process.pid}.${Date.now()}.tmp`);
+  try {
+    await writeFile(tmp, bytes);
+    await rename(tmp, target);
+  } catch (err) {
+    await rm(tmp, { force: true }).catch(() => {});
+    throw err;
+  }
 }
 
 // ---- Window ----------------------------------------------------------------------------------

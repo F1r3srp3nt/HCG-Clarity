@@ -17,6 +17,12 @@ python-pptx 1.0.2, LibreOffice. All provider traffic went to the local **mock** 
 | `npm run desktop:pack` + `npm run desktop:test` (packaged Linux Electron app, own Xvfb) | **14/14** steps |
 | `./scripts/check-no-secrets.sh` | Pass |
 
+**CI** ([run 43546700506](https://github.com/F1r3srp3nt/HCG-Clarity/actions/runs/43546700506), commit `a359fb0`, GitHub-hosted runners): all four jobs passed —
+type-check/unit tests/build and both browser e2e suites on `ubuntu-24.04`, the packaged Linux
+desktop app (14/14), and on `macos-15` (Apple Silicon) the `.app` + DMG build with signature,
+bundle and fuse checks followed by the packaged-app test (14/14, including python-pptx opening the
+exported deck).
+
 The 3 skipped Distil tests are kept as `it.skip` on purpose: they test Swift types that were
 not ported (SampleProject, Evaluation/ProjectCodec, Experiment validation).
 
@@ -40,5 +46,6 @@ not ported (SampleProject, Evaluation/ProjectCodec, Experiment validation).
   and real prompt-injection resistance are therefore unverified.
 - The original Swift test suites of RePrompter and Distil: no Swift toolchain in this
   environment. Their tests were ported and run against the TypeScript ports instead.
-- macOS desktop build (`npm run desktop:dist:mac`), Windows, and any run by a person on a Mac.
+- Any run of the macOS app by a person on a Mac (the CI runner drives it automatically, with a
+  test keystore instead of the real Keychain), notarised distribution, and Windows.
 - Microsoft PowerPoint and Keynote; screen readers; very large projects.

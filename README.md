@@ -125,8 +125,9 @@ Deferred (not shown in the UI):
 - Relay — excluded; see the audit.
 
 Not verified: real Anthropic and ElevenLabs calls (only mock providers), Microsoft PowerPoint
-and Keynote (exports checked with python-pptx and LibreOffice), the macOS desktop build, screen
-readers.
+and Keynote (exports checked with python-pptx and LibreOffice), use of the macOS app by a person
+on a Mac (CI builds the Apple Silicon `.app` and DMG and passes the packaged-app test, but the app
+is ad-hoc signed and not notarised), screen readers.
 
 ## Repository layout
 
