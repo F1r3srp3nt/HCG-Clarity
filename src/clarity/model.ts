@@ -44,7 +44,7 @@ export const SourceSchema = z.object({
    */
   extraction: z
     .object({
-      from: z.enum(['pdf', 'docx']),
+      from: z.enum(['pdf', 'docx', 'image']),
       method: z.string(),
       /** 1-based line where each page starts (PDF). */
       pageStartLines: z.array(z.number().int().positive()),
@@ -232,6 +232,11 @@ export function emptyClarityProject(): ClarityProject {
     deck,
     migrationNotes: [],
   };
+}
+
+/** True when a source has text Distil can use: a text source, or an image whose text was recognised. */
+export function hasText(s: Pick<Source, 'kind' | 'text'>): boolean {
+  return s.kind === 'text' || (s.kind === 'image' && s.text.trim().length > 0);
 }
 
 export function currentRevision(p: PromptDoc): Revision {

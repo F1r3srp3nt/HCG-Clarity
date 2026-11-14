@@ -4,7 +4,8 @@
  * wrong encoding is reported instead of silently producing replacement characters.
  */
 import { newIdLocal, nowIso, type Source } from './model';
-import { DOCUMENT_MIMES, extractDocument, type DocumentKind, type ExtractOptions } from './extract';
+import { DOCUMENT_MIMES, extractDocument, extractImageText, type DocumentKind, type ExtractOptions } from './extract';
+import type { OcrRun } from './ocr';
 
 export const TEXT_EXTENSIONS = ['.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.log', '.html', '.htm', '.xml', '.yaml', '.yml'] as const;
 export const IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/webp'] as const;
@@ -101,3 +102,14 @@ export function formatBytes(n: number): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
+
+/**
+ * The recognised text of an image source. The image itself (the stored original) is unchanged;
+ * its text becomes usable in Distil and is labelled as OCR.
+ */
+export async function ocrImageSource(source: Source, image: Blob | Uint8Array, run: OcrRun): Promise<Pick<Source, 'text' | 'extraction'>> {
+  if (source.kind !== 'image') throw new SourceError('Only image sources can be read with OCR here.');
+  const ex = await extractImageText(image, source.name, run);
+  return { text: ex.text, extraction: { from: 'image', method: ex.method, pageStartLines: [], warnings: ex.warnings, ocrPages: [] } };
+}
+

@@ -166,3 +166,8 @@ API exists to reuse.
   WebAssembly, Apache-2.0) on the user's device after confirmation, in English and/or Norwegian.
   All OCR files are served by the app; the desktop CSP gained `'wasm-unsafe-eval'` for this. OCR
   pages are recorded on the source and marked `(OCR)` in references; confidence is reported.
+- **OCR for image sources.** An image source's text can be recognised on demand with the same
+  on-device OCR. The image stays the stored original (still usable in the deck); the recognised
+  text is stored on the source, labelled as OCR, and can be used by Distil. Reading it again is
+  blocked while excerpts point into the current text, so references cannot silently change.
+

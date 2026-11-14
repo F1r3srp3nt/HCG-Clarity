@@ -391,6 +391,43 @@ try {
     await p.close();
   });
 
+  await step('OCR for an image source: the image stays, its text is recognised on this device and used by Distil', async () => {
+    const p = await ctx.newPage();
+    const pageErrors = [];
+    const external = [];
+    p.on('pageerror', (e) => pageErrors.push(String(e)));
+    p.on('request', (r) => {
+      const u = new URL(r.url());
+      if (!['127.0.0.1', 'localhost'].includes(u.hostname) && !['blob:', 'data:'].includes(u.protocol)) external.push(r.url());
+    });
+    await p.goto(plain.url);
+    await p.setInputFiles('[data-testid=source-input]', [join(root, 'tests', 'fixtures', 'docs', 'note-photo.webp')]);
+    await p.locator('[data-testid=source-item]', { hasText: 'note-photo.webp' }).click();
+    // Without recognised text the image is not offered to Distil.
+    assert.equal(await p.isDisabled('text=Continue to Distil →'), true);
+    await p.click('[data-testid=image-ocr-run]');
+    await p.locator('[data-testid=source-extraction]').waitFor({ timeout: 60000 });
+    assert.match(await p.locator('[data-testid=source-extraction]').innerText(), /Recognised text \(OCR\)\..*Tesseract OCR \(English\)/s);
+    const text = (await p.locator('.source-text').innerText()).replace(/\s+/g, ' ');
+    assert.ok(text.includes('Never retry 400 or 413: the request itself is wrong.'), text);
+    assert.match(await p.locator('[data-testid=source-item]', { hasText: 'note-photo.webp' }).innerText(), /OCR text/);
+    assert.equal(await p.locator('.image-preview img').count(), 1, 'the image itself is still shown');
+    await p.screenshot({ path: join(out, '11-image-ocr.png'), fullPage: true });
+    await p.click('[data-testid=nav-distil]');
+    await p.click('[data-testid=distil-new]');
+    await p.locator('[data-testid=distil-outcome]').waitFor();
+    const refs = await p.locator('[data-testid=excerpt-ref]').allInnerTexts();
+    assert.ok(refs.length > 0 && refs.every((r) => /^note-photo\.webp · OCR · lines? \d/.test(r)), refs.join(' | '));
+    // Once excerpts point into the text, reading it again is blocked.
+    await p.click('[data-testid=nav-sources]');
+    await p.locator('[data-testid=source-item]', { hasText: 'note-photo.webp' }).click();
+    assert.match(await p.locator('[data-testid=image-ocr]').innerText(), /Used by “Distillation 1”/);
+    assert.equal(await p.locator('[data-testid=image-ocr-run]').count(), 0);
+    assert.deepEqual(external, [], 'OCR must not fetch anything from outside the app');
+    assert.deepEqual(pageErrors, []);
+    await p.close();
+  });
+
   await step('Without a provider key, AI actions point to setup; local features work', async () => {
     const p = await ctx.newPage();
     await p.goto(plain.url);

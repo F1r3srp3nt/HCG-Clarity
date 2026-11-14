@@ -296,11 +296,47 @@ export function pagesForLines(pageStartLines: readonly number[], lineStart: numb
 }
 
 /** Page label for an excerpt, marked "(OCR)" when any of its pages was read with OCR. */
-export function pagesWithOcr(ex: { pageStartLines: readonly number[]; ocrPages?: readonly number[] }, lineStart: number, lineEnd: number): string {
+export function pagesWithOcr(ex: { from?: string; pageStartLines: readonly number[]; ocrPages?: readonly number[] }, lineStart: number, lineEnd: number): string {
+  if (ex.from === 'image') return 'OCR';
   const label = pagesForLines(ex.pageStartLines, lineStart, lineEnd);
   if (!label || !ex.ocrPages?.length) return label;
   const pageOf = (line: number) => ex.pageStartLines.filter((s) => s <= line).length;
   for (let p = pageOf(lineStart); p <= pageOf(lineEnd); p++) if (ex.ocrPages.includes(p)) return `${label} (OCR)`;
   return label;
+}
+
+/** Longest edge of an image passed to OCR, in pixels. Larger photos are scaled down first. */
+const OCR_MAX_IMAGE_EDGE = 4000;
+
+/** Browser: decodes PNG, JPEG or WebP to a canvas (also normalises formats Tesseract may not read). Node: the bytes. */
+async function imageForOcr(image: Blob | Uint8Array): Promise<OcrImage> {
+  if (typeof createImageBitmap === 'function' && typeof document !== 'undefined') {
+    const blob = image instanceof Blob ? image : new Blob([image as Uint8Array<ArrayBuffer>]);
+    const bmp = await createImageBitmap(blob);
+    const scale = Math.min(1, OCR_MAX_IMAGE_EDGE / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(bmp.width * scale));
+    canvas.height = Math.max(1, Math.round(bmp.height * scale));
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    bmp.close();
+    return canvas;
+  }
+  return image instanceof Blob ? new Uint8Array(await image.arrayBuffer()) : image;
+}
+
+/** Recognises the text in an image source with on-device OCR. */
+export async function extractImageText(image: Blob | Uint8Array, name: string, run: OcrRun): Promise<Extracted> {
+  const [result] = await recognisePages([() => imageForOcr(image)], run);
+  const text = cleanExtractedText(result.text);
+  if (!text) throw new SourceError(`No text was recognised in "${name}". The image may contain no text, or it may be too small, blurred or rotated.`);
+  if (new TextEncoder().encode(text).byteLength > MAX_TEXT_SOURCE_BYTES) throw new SourceError(`The text recognised in "${name}" is larger than 5 MB.`);
+  const langs = run.languages.map((l) => OCR_LANGUAGES[l]).join(' + ');
+  const warnings = [`Read with OCR (${langs}); confidence ${result.confidence}%. Recognition errors are possible: check names, numbers and quotes against the image.`];
+  if (result.confidence < 70) warnings.push('Low OCR confidence: the text may be unreliable.');
+  warnings.push('Layout is not preserved: text in columns, tables or diagrams may come out in a different order.');
+  return { text, pageStartLines: [], method: `Tesseract OCR (${langs})`, warnings, ocrPages: [] };
 }
 
