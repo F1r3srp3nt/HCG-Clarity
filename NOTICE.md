@@ -28,6 +28,8 @@ for the desktop backend bundle, in `build/desktop/backend.cjs.LEGAL.txt` when bu
 | dotenv | 18.0.9 | BSD-2-Clause |
 | express | 5.3.0 | MIT |
 | jszip | 3.10.2 | MIT or GPL-3.0-or-later (used under MIT) |
+| pdfjs-dist (PDF text extraction) | 6.5.438 | Apache-2.0 |
+| mammoth (Word .docx text extraction) | 1.13.0 | BSD-2-Clause; its dependencies: bluebird 3.7.2, underscore 1.13.8, xmlbuilder 15.1.1, base64-js 1.5.1, @xmldom/xmldom 0.8.15 (MIT), lop 0.4.2, dingbat-to-unicode 1.0.2 (BSD-2-Clause), argparse 2.0.1 (Python-2.0, command-line tool only, not bundled) |
 | multer | 2.5.0 | MIT |
 | pptxgenjs | 4.0.1 | MIT |
 | react, react-dom | 19.3.1 | MIT |

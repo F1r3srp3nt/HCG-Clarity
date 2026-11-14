@@ -106,3 +106,6 @@
   .list-pane { position: static; }
 }
 .deck-content > .editor { flex: 1; height: auto; }
+.source-text li.page-start { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 6px; position: relative; }
+.source-text li.page-start::before { content: attr(data-page); position: absolute; right: 10px; top: 4px; font-size: 10.5px; color: var(--muted); }
+.kind-tag.text { min-width: 3.4em; text-align: center; }

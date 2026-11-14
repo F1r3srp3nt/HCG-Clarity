@@ -353,6 +353,16 @@ try {
     assert.ok(Object.keys(zip.files).some((f) => f.endsWith('.mp3')));
   });
 
+  await step('PDF import works in the packaged app (pdf.js worker under the app CSP)', async () => {
+    await page.click('[data-testid=nav-sources]');
+    await page.setInputFiles('[data-testid=source-input]', [join(root, 'tests', 'fixtures', 'docs', 'synthetic-report.pdf')]);
+    await page.locator('[data-testid=source-item]', { hasText: 'synthetic-report.pdf' }).click({ timeout: 30000 });
+    assert.match(await page.locator('[data-testid=source-extraction]').innerText(), /pdf\.js/);
+    assert.equal(await page.locator('.source-text li.page-start').count(), 2);
+    await page.click('[data-testid=nav-create]');
+    await page.click('[data-testid=open-deck]');
+  });
+
   await step('keys never reach the window, its storage, saved files or logs', async () => {
     await page.click('[data-testid=save-project]');
     await page.getByText(`Project saved as ${PROJECT}`).last().waitFor();

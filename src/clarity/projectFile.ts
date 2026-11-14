@@ -180,6 +180,7 @@ async function migratePresentationStudio(bytes: Uint8Array, fileName: string): P
       width: a.width,
       height: a.height,
       note: a.caption,
+      extraction: null,
     });
   }
   project.migrationNotes = [

@@ -80,13 +80,17 @@ try {
   const notesText = readFileSync(sample('clarity-upload-notes.md'), 'utf8');
 
   console.log('\nWorkflow with the MOCK AI provider');
-  await step('Sources: import a text file and an image; unsupported and duplicate files are refused', async () => {
-    const pdf = join(out, 'not-supported.pdf');
-    writeFileSync(pdf, '%PDF-1.4 synthetic');
-    await page.setInputFiles('[data-testid=source-input]', [sample('clarity-upload-notes.md'), sample('bike-station-portrait.jpg'), pdf]);
+  await step('Sources: import a text file and an image; unsupported, damaged and duplicate files are refused', async () => {
+    const ppt = join(out, 'slides.pptx');
+    writeFileSync(ppt, 'synthetic');
+    const badPdf = join(out, 'damaged.pdf');
+    writeFileSync(badPdf, '%PDF-1.4 synthetic but damaged');
+    await page.setInputFiles('[data-testid=source-input]', [sample('clarity-upload-notes.md'), sample('bike-station-portrait.jpg'), ppt, badPdf]);
     await page.locator('[data-testid=source-item]').nth(1).waitFor();
+    await page.locator('.toast.error', { hasText: 'damaged.pdf' }).waitFor();
     assert.equal(await page.locator('[data-testid=source-item]').count(), 2);
-    assert.match(await page.locator('.toast.error').first().innerText(), /PDF, Word, PowerPoint and RTF files are not supported yet/);
+    assert.match(await page.locator('.toast.error', { hasText: 'slides.pptx' }).innerText(), /this format is not supported/);
+    assert.match(await page.locator('.toast.error', { hasText: 'damaged.pdf' }).innerText(), /could not be read as a PDF/);
     await page.setInputFiles('[data-testid=source-input]', [sample('clarity-upload-notes.md')]);
     await page.getByText('already in Sources').waitFor();
     assert.equal(await page.locator('[data-testid=source-item]').count(), 2);
@@ -298,6 +302,39 @@ try {
     assert.equal(await p2.inputValue('[data-testid=clarity-title]'), 'Recovered synthetic project');
     assert.equal(await p2.locator('[data-testid=source-item]').count(), 1);
     await c2.close();
+  });
+
+  await step('PDF and Word import: extracted text with page references; a scan is refused', async () => {
+    const p = await ctx.newPage();
+    const pageErrors = [];
+    p.on('pageerror', (e) => pageErrors.push(String(e)));
+    await p.goto(plain.url);
+    const docs = join(root, 'tests', 'fixtures', 'docs');
+    await p.setInputFiles('[data-testid=source-input]', [join(docs, 'synthetic-report.pdf'), join(docs, 'synthetic-report.docx'), join(docs, 'image-only.pdf')]);
+    await p.locator('.toast.error', { hasText: 'image-only.pdf' }).waitFor({ timeout: 30000 });
+    assert.match(await p.locator('.toast.error', { hasText: 'image-only.pdf' }).innerText(), /no extractable text.*OCR/);
+    assert.equal(await p.locator('[data-testid=source-item]').count(), 2);
+    await p.locator('[data-testid=source-item]', { hasText: 'synthetic-report.pdf' }).click();
+    assert.match(await p.locator('[data-testid=source-extraction]').innerText(), /Extracted text\..*pdf\.js/s);
+    assert.equal(await p.locator('.source-text li.page-start').count(), 2);
+    assert.equal(await p.locator('.source-text li[data-page="Page 2"] .lt').innerText(), 'Error codes');
+    await p.screenshot({ path: join(out, '8-pdf-source.png') });
+    await p.locator('[data-testid=source-item]', { hasText: 'synthetic-report.docx' }).click();
+    assert.match(await p.locator('[data-testid=source-extraction]').innerText(), /mammoth/);
+    await p.click('[data-testid=nav-distil]');
+    await p.click('[data-testid=distil-new]');
+    await p.locator('[data-testid=distil-outcome]').waitFor();
+    const refs = await p.locator('[data-testid=excerpt-ref]').allInnerTexts();
+    assert.ok(refs.some((r) => /^synthetic-report\.pdf · p\. 2 · lines? 8/.test(r)), refs.join(' | '));
+    assert.ok(refs.some((r) => /^synthetic-report\.docx · lines? \d/.test(r)));
+    assert.ok(refs.every((r) => !/does not match/.test(r)));
+    await p.click('[data-testid=nav-create]');
+    const briefPath = await download(p, () => p.click('[data-testid=export-brief]'), 'pdf-brief.md');
+    const md = readFileSync(briefPath, 'utf8');
+    assert.match(md, /Source: \*\*synthetic-report\.pdf · p\. 2/);
+    assert.match(md, /text extracted with pdf\.js/);
+    assert.deepEqual(pageErrors, []);
+    await p.close();
   });
 
   await step('Without a provider key, AI actions point to setup; local features work', async () => {

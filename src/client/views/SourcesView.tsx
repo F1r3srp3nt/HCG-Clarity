@@ -1,12 +1,13 @@
 /** Sources: import and organise the material a project works from. Originals are never edited. */
 import { useMemo, useRef, useState, type DragEvent } from 'react';
 import { nowIso, type Source } from '../../clarity/model';
-import { formatBytes, IMAGE_MIMES, isTextFileName, MAX_TEXT_SOURCE_BYTES, sha256Hex, sourceLines, textSourceFromBytes, textSourceFromPaste } from '../../clarity/sources';
+import { documentKind, MAX_DOCUMENT_BYTES } from '../../clarity/extract';
+import { documentSourceFromBytes, formatBytes, IMAGE_MIMES, isTextFileName, MAX_TEXT_SOURCE_BYTES, sha256Hex, sourceLines, textSourceFromBytes, textSourceFromPaste } from '../../clarity/sources';
 import { bytesToBlob } from '../../shared/util';
 import { blobUrl, readImageFile } from '../images';
 import { useClarity } from '../state';
 
-const ACCEPT = ['.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.log', '.html', '.htm', '.xml', '.yaml', '.yml', ...IMAGE_MIMES].join(',');
+const ACCEPT = ['.pdf', '.docx', '.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.log', '.html', '.htm', '.xml', '.yaml', '.yml', ...IMAGE_MIMES].join(',');
 
 export async function sourceFromFile(file: File): Promise<{ source: Source; blob: Blob }> {
   const lower = file.name.toLowerCase();
@@ -25,14 +26,25 @@ export async function sourceFromFile(file: File): Promise<{ source: Source; blob
       width: asset.width,
       height: asset.height,
       note: '',
+      extraction: null,
     };
     return { source, blob };
   }
-  if (lower.endsWith('.pdf') || lower.endsWith('.docx') || lower.endsWith('.doc') || lower.endsWith('.pptx') || lower.endsWith('.rtf')) {
-    throw new Error(`"${file.name}": PDF, Word, PowerPoint and RTF files are not supported yet. Save or copy the text as .txt or .md and add that.`);
+  if (lower.endsWith('.pdf') || lower.endsWith('.docx')) {
+    if (file.size > MAX_DOCUMENT_BYTES) throw new Error(`"${file.name}" is larger than 50 MB.`);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const kind = documentKind(file.name, bytes)!;
+    const source = await documentSourceFromBytes(file.name, bytes, kind, 'file');
+    return { source, blob: bytesToBlob(bytes, source.mime) };
+  }
+  if (lower.endsWith('.doc')) {
+    throw new Error(`"${file.name}" is an old Word format (.doc). Save it as .docx (or PDF) and add it again.`);
+  }
+  if (lower.endsWith('.pptx') || lower.endsWith('.ppt') || lower.endsWith('.rtf') || lower.endsWith('.odt') || lower.endsWith('.pages')) {
+    throw new Error(`"${file.name}": this format is not supported. Supported documents: PDF and Word (.docx), plus text and images.`);
   }
   if (!isTextFileName(file.name) && !file.type.startsWith('text/')) {
-    throw new Error(`"${file.name}" is not a supported type. Supported: plain text, Markdown, CSV, JSON, HTML/XML (as text) and PNG, JPEG or WebP images.`);
+    throw new Error(`"${file.name}" is not a supported type. Supported: PDF, Word (.docx), plain text, Markdown, CSV, JSON, HTML/XML (as text) and PNG, JPEG or WebP images.`);
   }
   if (file.size > MAX_TEXT_SOURCE_BYTES) throw new Error(`"${file.name}" is larger than 5 MB.`);
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -48,6 +60,7 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
   const [pasteTitle, setPasteTitle] = useState('');
   const [pasteText, setPasteText] = useState('');
   const [filter, setFilter] = useState('');
+  const [reading, setReading] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const selected = clarity.sources.find((s) => s.id === selectedId) ?? null;
 
@@ -65,6 +78,7 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
     const known = new Set(clarity.sources.map((s) => s.sha256));
     for (const f of Array.from(files)) {
       try {
+        setReading(f.name);
         const { source, blob } = await sourceFromFile(f);
         if (known.has(source.sha256)) {
           toast('info', `"${f.name}" is already in Sources (identical content), so it was not added again.`);
@@ -79,6 +93,7 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
         toast('error', (e as Error).message);
       }
     }
+    setReading(null);
     if (added) toast('success', `Added ${added} source${added === 1 ? '' : 's'}. Originals are kept exactly as imported.`);
   }
 
@@ -151,7 +166,12 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
           data-testid="source-drop"
         >
           <strong>Drop files here or click to choose</strong>
-          <span className="muted small">Text (.txt, .md, .csv, .json, .html…) up to 5 MB · PNG, JPEG, WebP images up to 25 MB</span>
+          <span className="muted small">PDF and Word (.docx) up to 50 MB · text (.txt, .md, .csv, .json, .html…) up to 5 MB · PNG, JPEG, WebP images up to 25 MB</span>
+          {reading && (
+            <span className="small" role="status" aria-live="polite" data-testid="source-reading">
+              Reading “{reading}”…
+            </span>
+          )}
           <input
             ref={input}
             type="file"
@@ -204,7 +224,7 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
               {shown.map((s) => (
                 <li key={s.id}>
                   <button className={`item ${selectedId === s.id ? 'selected' : ''}`} onClick={() => setSelectedId(s.id)} aria-current={selectedId === s.id ? 'true' : undefined} data-testid="source-item">
-                    <span className={`kind-tag ${s.kind}`}>{s.kind === 'image' ? 'IMG' : 'TXT'}</span>
+                    <span className={`kind-tag ${s.kind}`}>{s.kind === 'image' ? 'IMG' : s.extraction ? s.extraction.from.toUpperCase() : 'TXT'}</span>
                     <span className="grow">
                       <span className="item-title">{s.name}</span>
                       <span className="muted small">
@@ -234,6 +254,7 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
 
 function SourceDetail({ source, blob, uses, onRemove, onNote }: { source: Source; blob: Blob | undefined; uses: string[]; onRemove: () => void; onNote: (note: string) => void }) {
   const lines = source.kind === 'text' ? sourceLines(source.text) : [];
+  const pageAt = new Map((source.extraction?.pageStartLines ?? []).map((line, i) => [line, `Page ${i + 1}`]));
   return (
     <article aria-label={`Source ${source.name}`} data-testid="source-detail">
       <div className="row between wrap gap-s">
@@ -262,13 +283,28 @@ function SourceDetail({ source, blob, uses, onRemove, onNote }: { source: Source
         <span>Your note about this source</span>
         <input value={source.note} onChange={(e) => onNote(e.target.value)} placeholder="Optional" />
       </label>
-      <h3 className="section-title">Original {source.kind === 'text' ? '(read-only, with line numbers used by references)' : ''}</h3>
+      {source.extraction && (
+        <div className="alert info" data-testid="source-extraction">
+          <b>Extracted text.</b> The original {source.extraction.from === 'pdf' ? 'PDF' : 'Word document'} is stored unchanged (the checksum above is of the original). Below is the text extracted
+          with {source.extraction.method}; line numbers and references point into it{source.extraction.from === 'pdf' ? ', and page numbers into the PDF' : ''}.
+          {source.extraction.warnings.length > 0 && (
+            <ul className="small">
+              {source.extraction.warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      <h3 className="section-title">
+        {source.extraction ? 'Extracted text (read-only, with the line numbers used by references)' : `Original ${source.kind === 'text' ? '(read-only, with line numbers used by references)' : ''}`}
+      </h3>
       {source.kind === 'image' ? (
         <div className="image-preview">{blob ? <img src={blobUrl(blob)} alt={source.note || source.name} /> : <p className="muted">Image data is missing.</p>}</div>
       ) : (
         <ol className="source-text" aria-label="Source text">
           {lines.map((l, i) => (
-            <li key={i} id={`L${i + 1}`}>
+            <li key={i} id={`L${i + 1}`} className={pageAt.has(i + 1) ? 'page-start' : undefined} data-page={pageAt.get(i + 1)}>
               <span className="ln" aria-hidden>
                 {i + 1}
               </span>

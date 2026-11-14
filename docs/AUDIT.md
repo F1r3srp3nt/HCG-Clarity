@@ -155,3 +155,11 @@ No source contains an HCG Connect implementation — RePrompter has only an unim
 `HCGIdentityProviding` protocol and no endpoint. HCG Clarity therefore has **no account system**
 and creates none; it is single-user and local. Account integration is deferred until an HCG Connect
 API exists to reuse.
+
+## 7. Changes after 0.1.0
+
+- **PDF and Word (.docx) import** (previously deferred). Text is extracted in the app with
+  pdf.js (Apache-2.0) and mammoth (BSD-2-Clause); the original file is what is stored and hashed,
+  the extracted text is recorded on the source with the method used, and PDF excerpts carry page
+  numbers. Scanned PDFs (no text layer), `.doc`, PowerPoint and RTF remain unsupported.
+
