@@ -4,6 +4,7 @@
  * wrong encoding is reported instead of silently producing replacement characters.
  */
 import { newIdLocal, nowIso, type Source } from './model';
+import { DOCUMENT_MIMES, extractDocument, type DocumentKind } from './extract';
 
 export const TEXT_EXTENSIONS = ['.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.log', '.html', '.htm', '.xml', '.yaml', '.yml'] as const;
 export const IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/webp'] as const;
@@ -57,6 +58,30 @@ export async function textSourceFromBytes(name: string, bytes: Uint8Array, origi
     width: 0,
     height: 0,
     note: '',
+    extraction: null,
+  };
+}
+
+/**
+ * A text source made from a PDF or Word document: the original bytes are what is stored (and
+ * hashed); `text` is the extracted text, and `extraction` says how it was obtained.
+ */
+export async function documentSourceFromBytes(name: string, bytes: Uint8Array, kind: DocumentKind, origin: Source['origin'] = 'file'): Promise<Source> {
+  const ex = await extractDocument(kind, bytes, name);
+  return {
+    id: newIdLocal('src'),
+    name,
+    kind: 'text',
+    mime: DOCUMENT_MIMES[kind],
+    bytes: bytes.byteLength,
+    sha256: await sha256Hex(bytes),
+    origin,
+    addedAt: nowIso(),
+    text: ex.text,
+    width: 0,
+    height: 0,
+    note: '',
+    extraction: { from: kind, method: ex.method, pageStartLines: ex.pageStartLines, warnings: ex.warnings },
   };
 }
 

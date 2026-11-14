@@ -38,6 +38,20 @@ export const SourceSchema = z.object({
   width: z.number().int().nonnegative().default(0),
   height: z.number().int().nonnegative().default(0),
   note: z.string().default(''),
+  /**
+   * Set when `text` was extracted from a document (PDF or Word) rather than being the file itself.
+   * The original document is what is stored byte-for-byte; references point into the extracted text.
+   */
+  extraction: z
+    .object({
+      from: z.enum(['pdf', 'docx']),
+      method: z.string(),
+      /** 1-based line where each page starts (PDF). */
+      pageStartLines: z.array(z.number().int().positive()),
+      warnings: z.array(z.string()),
+    })
+    .nullable()
+    .default(null),
 });
 export type Source = z.infer<typeof SourceSchema>;
 
@@ -61,6 +75,8 @@ export const ExcerptSchema = z.object({
   required: z.boolean(),
   /** Exact text of the lines. Never rewritten. */
   text: z.string(),
+  /** Page(s) of the original document, e.g. "p. 3" (PDF sources only). */
+  pages: z.string().default(''),
 });
 export type Excerpt = z.infer<typeof ExcerptSchema>;
 
@@ -220,7 +236,8 @@ export function currentRevision(p: PromptDoc): Revision {
   return p.revisions.find((r) => r.id === p.currentRevisionId) ?? p.revisions[p.revisions.length - 1];
 }
 
-/** "notes.md · lines 4–12" */
-export function excerptRef(e: Pick<Excerpt, 'sourceName' | 'lineStart' | 'lineEnd'>): string {
-  return `${e.sourceName} · ${e.lineStart === e.lineEnd ? `line ${e.lineStart}` : `lines ${e.lineStart}–${e.lineEnd}`}`;
+/** "notes.md · lines 4–12", or "report.pdf · p. 3 · lines 40–52" for a PDF (lines of the extracted text). */
+export function excerptRef(e: Pick<Excerpt, 'sourceName' | 'lineStart' | 'lineEnd'> & { pages?: string }): string {
+  const lines = e.lineStart === e.lineEnd ? `line ${e.lineStart}` : `lines ${e.lineStart}–${e.lineEnd}`;
+  return `${e.sourceName} · ${e.pages ? `${e.pages} · ` : ''}${lines}`;
 }

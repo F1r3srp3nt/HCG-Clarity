@@ -24,7 +24,7 @@ migration map (what was reused, ported, deferred or excluded, and why).
 
 | Step | What works |
 |---|---|
-| **Sources** | Import text (`.txt`, `.md`, `.csv`, `.json`, `.html`, … up to 5 MB, strict UTF-8) and images (PNG, JPEG, WebP), or paste text. Originals are stored byte-for-byte with a SHA-256 checksum, never edited, shown read-only with line numbers. Identical files are not added twice. Shows where each source is used. |
+| **Sources** | Import **PDF** and **Word (.docx)** documents (up to 50 MB), text (`.txt`, `.md`, `.csv`, `.json`, `.html`, … up to 5 MB, strict UTF-8) and images (PNG, JPEG, WebP), or paste text. Originals are stored byte-for-byte with a SHA-256 checksum and never edited. For PDF and Word the text is **extracted** (pdf.js / mammoth) and clearly labelled as such; PDF excerpts also cite the **page** (`report.pdf · p. 2 · lines 8–9`). Scanned PDFs without a text layer are refused (no OCR). Identical files are not added twice. Shows where each source is used. |
 | **Distil** | Distil's engine: sources are cut into **excerpts that are exact lines of a source** and keep a reference (`notes.md · lines 4–9`). Four strategies (full, exact dedupe, manual-priority budget, task-relevance budget) with explained decisions, Required/priority per excerpt, comparison of all strategies, credential warning, prepared-prompt copy/export. Optional **AI notes**: every note must cite an excerpt with a quote; quotes not found in the cited excerpt are shown as **unverified**. |
 | **Refine** | RePrompter's local analysis (objective, requirements, constraints, missing information, vague wording), local formatter (no AI), 10 templates, six enhancement modes with **AI enhancement** under RePrompter's contract (validated before it is stored, preservation warnings shown). Every change is a **revision**; compare any revision with its parent, restore it as a new revision. Export TXT / Markdown / JSON. |
 | **Create** | **Clarity brief** (Markdown): instructions, distilled excerpts verbatim with references, AI notes labelled *AI-derived* with verified/unverified references, source checksums. **Presentation**: Presentation Studio's workflow — fill the brief from a prompt revision and distillation, generate with AI or build from a template without AI, edit, restyle, narrate (ElevenLabs), present, export an **editable `.pptx`** (and `.pptx` + narration ZIP). |
@@ -117,7 +117,7 @@ Implemented: everything in *What it does* above.
 
 Deferred (not shown in the UI):
 
-- PDF, Word, PowerPoint and RTF **import** (refused with a clear message; convert to text first).
+- Import of scanned PDFs (OCR), legacy Word `.doc`, PowerPoint and RTF (refused with a clear message).
 - Distil's model tokenizers (`cl100k_base`/`o200k_base`) — counts are labelled estimates.
 - Distil's answer-evaluation experiments; RePrompter collections and user-defined templates.
 - HCG Connect accounts, HCG AI service, sharing/collaboration (no implementation exists to reuse).

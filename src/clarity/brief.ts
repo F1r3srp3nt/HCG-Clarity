@@ -67,7 +67,11 @@ export function buildClarityBrief(i: BriefInputs): string {
   const sources = i.project.sources.filter((s) => used.has(s.id));
   if (sources.length) {
     out.push('## Sources', '', '| Source | Type | SHA-256 |', '|---|---|---|');
-    for (const s of sources) out.push(`| ${s.name.replace(/\|/g, '\\|')} | ${s.mime} | \`${s.sha256}\` |`);
+    for (const s of sources) {
+      const type = s.extraction ? `${s.mime} — text extracted with ${s.extraction.method}` : s.mime;
+      out.push(`| ${s.name.replace(/\|/g, '\\|')} | ${type} | \`${s.sha256}\` |`);
+    }
+    if (sources.some((s) => s.extraction)) out.push('', '_Line numbers of PDF and Word sources refer to the extracted text; page numbers refer to the PDF. The checksum is of the original file._');
     out.push('');
   }
   out.push('---', 'Generated with HCG Clarity');
