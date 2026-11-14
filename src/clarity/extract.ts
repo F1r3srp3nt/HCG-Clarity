@@ -7,7 +7,8 @@
  * page counts are limited. The original bytes are kept unchanged by the caller; what this returns
  * is *extracted* text, recorded as such on the source, and references point into it.
  */
-import { MAX_TEXT_SOURCE_BYTES, SourceError } from './sources';
+import { MAX_TEXT_SOURCE_BYTES, SourceError } from './common';
+import { OCR_LANGUAGES, recognisePages, type OcrImage, type OcrRun } from './ocr';
 
 export const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
 export const MAX_PDF_PAGES = 1000;
@@ -20,6 +21,8 @@ export interface Extracted {
   pageStartLines: number[];
   method: string;
   warnings: string[];
+  /** PDF pages whose text came from OCR. */
+  ocrPages?: number[];
 }
 
 export const DOCUMENT_MIMES: Record<DocumentKind, string> = {
@@ -101,7 +104,71 @@ export function pageText(items: readonly unknown[]): string {
   return out.join('\n');
 }
 
-async function extractPdf(bytes: Uint8Array, name: string): Promise<Extracted> {
+/** Raised when PDF pages have no text layer and the caller has not decided about OCR yet. */
+export class NeedsOcrError extends SourceError {
+  constructor(
+    public readonly fileName: string,
+    /** 1-based page numbers without text. */
+    public readonly emptyPages: number[],
+    public readonly totalPages: number,
+  ) {
+    super(
+      emptyPages.length === totalPages
+        ? `"${fileName}" has no text layer (it looks like a scan). Its text can be recognised with OCR.`
+        : `${emptyPages.length} of ${totalPages} pages of "${fileName}" have no text layer. They can be recognised with OCR.`,
+    );
+  }
+  get hasText(): boolean {
+    return this.emptyPages.length < this.totalPages;
+  }
+}
+
+export interface ExtractOptions {
+  /**
+   * What to do with PDF pages that have no text layer: undefined = stop with NeedsOcrError so the
+   * user can decide; false = import without them; an OcrRun = recognise them on this device.
+   */
+  ocr?: OcrRun | false;
+}
+
+/** Longest edge of a page image for OCR, in pixels (about 200–300 dpi for common page sizes). */
+const OCR_MAX_EDGE = 3000;
+
+interface CanvasAndContext {
+  canvas: { width: number; height: number; toBuffer?: (mime: string) => Uint8Array } & object;
+  context: object;
+}
+
+/** Renders one page to an image for OCR: a PNG buffer in Node, the canvas itself in the browser. */
+async function renderForOcr(doc: PDFDocumentProxyLike, pageNumber: number): Promise<OcrImage> {
+  const page = await doc.getPage(pageNumber);
+  try {
+    const base = page.getViewport({ scale: 1 });
+    const scale = Math.min(OCR_MAX_EDGE / Math.max(base.width, base.height), 300 / 72);
+    const viewport = page.getViewport({ scale });
+    const factory = doc.canvasFactory as { create(w: number, h: number): CanvasAndContext };
+    const cc = factory.create(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    await page.render({ canvas: cc.canvas as HTMLCanvasElement, canvasContext: cc.context as CanvasRenderingContext2D, viewport, background: '#ffffff' }).promise;
+    return typeof cc.canvas.toBuffer === 'function' ? new Uint8Array(cc.canvas.toBuffer('image/png')) : (cc.canvas as unknown as HTMLCanvasElement);
+  } finally {
+    page.cleanup();
+  }
+}
+
+type PDFDocumentProxyLike = Awaited<ReturnType<typeof import('pdfjs-dist/legacy/build/pdf.mjs').getDocument>['promise']>;
+
+function rangeText(pages: number[]): string {
+  const out: string[] = [];
+  for (let i = 0; i < pages.length; i++) {
+    let j = i;
+    while (j + 1 < pages.length && pages[j + 1] === pages[j] + 1) j++;
+    out.push(i === j ? `${pages[i]}` : `${pages[i]}–${pages[j]}`);
+    i = j;
+  }
+  return out.join(', ');
+}
+
+async function extractPdf(bytes: Uint8Array, name: string, options: ExtractOptions): Promise<Extracted> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   if (pdfWorkerSrc) pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
   // pdf.js may transfer (detach) the buffer it is given, so it gets a copy.
@@ -127,29 +194,62 @@ async function extractPdf(bytes: Uint8Array, name: string): Promise<Extracted> {
     for (let p = 1; p <= doc.numPages; p++) {
       const page = await doc.getPage(p);
       const content = await page.getTextContent();
-      const t = pageText(content.items);
-      const clean = cleanExtractedText(t);
+      const clean = cleanExtractedText(pageText(content.items));
       if (!clean) emptyPages.push(p);
       pages.push(clean);
       page.cleanup();
     }
+
+    const warnings: string[] = [];
+    let ocrPages: number[] = [];
+    let ocrNote = '';
+    if (emptyPages.length && options.ocr === undefined) throw new NeedsOcrError(name, emptyPages, doc.numPages);
+    if (emptyPages.length && options.ocr) {
+      const run = options.ocr;
+      const results = await recognisePages(
+        emptyPages.map((p) => () => renderForOcr(doc, p)),
+        run,
+      );
+      const low: number[] = [];
+      results.forEach((r, i) => {
+        const text = cleanExtractedText(r.text);
+        pages[emptyPages[i] - 1] = text;
+        if (text) ocrPages.push(emptyPages[i]);
+        if (text && r.confidence < 70) low.push(emptyPages[i]);
+      });
+      const recognised = results.filter((r) => cleanExtractedText(r.text));
+      const mean = recognised.length ? Math.round(recognised.reduce((a, r) => a + r.confidence, 0) / recognised.length) : 0;
+      const langs = run.languages.map((l) => OCR_LANGUAGES[l]).join(' + ');
+      ocrNote = ` + Tesseract OCR (${langs})`;
+      if (ocrPages.length) {
+        warnings.push(
+          `Page${ocrPages.length === 1 ? '' : 's'} ${rangeText(ocrPages)} ${ocrPages.length === 1 ? 'was' : 'were'} read with OCR (${langs}); average confidence ${mean}%. Recognition errors are possible: check names, numbers and quotes against the original.`,
+        );
+      }
+      if (low.length) warnings.push(`Low OCR confidence on page${low.length === 1 ? '' : 's'} ${rangeText(low)}: the text there may be unreliable.`);
+      const still = emptyPages.filter((p) => !ocrPages.includes(p));
+      if (still.length) warnings.push(`No text was recognised on page${still.length === 1 ? '' : 's'} ${rangeText(still)}.`);
+    } else if (emptyPages.length) {
+      warnings.push(`No text on page${emptyPages.length === 1 ? '' : 's'} ${rangeText(emptyPages)} (scanned or image-only; imported without OCR).`);
+    }
+
     // Pages are separated by a blank line, so a page boundary is also a paragraph boundary for Distil.
     const pageStartLines: number[] = [];
     let line = 1;
-    const parts: string[] = [];
     for (const pg of pages) {
       pageStartLines.push(line);
-      parts.push(pg);
       line += (pg ? pg.split('\n').length : 1) + 1;
     }
-    const text = parts.join('\n\n');
+    const text = pages.join('\n\n');
     if (!text.trim()) {
-      throw new SourceError(`"${name}" has no extractable text (it may be scanned images). Text recognition (OCR) is not supported.`);
+      throw new SourceError(
+        options.ocr
+          ? `No text could be recognised in "${name}", even with OCR. The scan may be too faint, rotated or in another language.`
+          : `"${name}" has no extractable text (it may be scanned images).`,
+      );
     }
-    const warnings: string[] = [];
-    if (emptyPages.length) warnings.push(`No text on page${emptyPages.length === 1 ? '' : 's'} ${emptyPages.join(', ')} (images or scanned content are not extracted).`);
     warnings.push('Text extracted from a PDF: reading order, columns, tables and hyphenation may differ from the printed page.');
-    return { text, pageStartLines, method: `pdf.js ${pdfjs.version}`, warnings };
+    return { text, pageStartLines, method: `pdf.js ${pdfjs.version}${ocrNote}`, warnings, ocrPages };
   } finally {
     await task.destroy();
   }
@@ -173,9 +273,9 @@ async function extractDocx(bytes: Uint8Array, name: string): Promise<Extracted> 
   return { text, pageStartLines: [], method: 'mammoth (raw text)', warnings };
 }
 
-export async function extractDocument(kind: DocumentKind, bytes: Uint8Array, name: string): Promise<Extracted> {
+export async function extractDocument(kind: DocumentKind, bytes: Uint8Array, name: string, options: ExtractOptions = {}): Promise<Extracted> {
   if (bytes.byteLength > MAX_DOCUMENT_BYTES) throw new SourceError(`"${name}" is larger than 50 MB.`);
-  const out = kind === 'pdf' ? await extractPdf(bytes, name) : await extractDocx(bytes, name);
+  const out = kind === 'pdf' ? await extractPdf(bytes, name, options) : await extractDocx(bytes, name);
   if (new TextEncoder().encode(out.text).byteLength > MAX_TEXT_SOURCE_BYTES) {
     throw new SourceError(`The text extracted from "${name}" is larger than 5 MB. Split the document and add the parts.`);
   }
@@ -194,3 +294,13 @@ export function pagesForLines(pageStartLines: readonly number[], lineStart: numb
   const b = pageOf(lineEnd);
   return a === b ? `p. ${a}` : `pp. ${a}–${b}`;
 }
+
+/** Page label for an excerpt, marked "(OCR)" when any of its pages was read with OCR. */
+export function pagesWithOcr(ex: { pageStartLines: readonly number[]; ocrPages?: readonly number[] }, lineStart: number, lineEnd: number): string {
+  const label = pagesForLines(ex.pageStartLines, lineStart, lineEnd);
+  if (!label || !ex.ocrPages?.length) return label;
+  const pageOf = (line: number) => ex.pageStartLines.filter((s) => s <= line).length;
+  for (let p = pageOf(lineStart); p <= pageOf(lineEnd); p++) if (ex.ocrPages.includes(p)) return `${label} (OCR)`;
+  return label;
+}
+

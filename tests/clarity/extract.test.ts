@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import JSZip from 'jszip';
-import { cleanExtractedText, documentKind, extractDocument, pagesForLines, pageText } from '../../src/clarity/extract';
+import { cleanExtractedText, documentKind, NeedsOcrError, extractDocument, pagesForLines, pageText } from '../../src/clarity/extract';
 import { documentSourceFromBytes, sha256Hex, SourceError } from '../../src/clarity/sources';
 import { cutExcerpts, excerptMatchesSource, newDistillation, runDistillation } from '../../src/clarity/distil';
 import { emptyClarityProject, excerptRef } from '../../src/clarity/model';
@@ -39,8 +39,9 @@ describe('PDF', () => {
     expect(cutExcerpts([s], 'whole')[0].pages).toBe('pp. 1–2');
   });
 
-  it('refuses a PDF without a text layer, a fake PDF and a damaged PDF with clear messages', async () => {
-    await expect(extractDocument('pdf', read('image-only.pdf'), 'scan.pdf')).rejects.toThrow(/no extractable text.*OCR/);
+  it('asks about OCR for a PDF without a text layer; refuses a fake or damaged PDF', async () => {
+    await expect(extractDocument('pdf', read('image-only.pdf'), 'scan.pdf')).rejects.toThrow(NeedsOcrError);
+    await expect(extractDocument('pdf', read('image-only.pdf'), 'scan.pdf', { ocr: false })).rejects.toThrow(/no extractable text/);
     expect(() => documentKind('fake.pdf', new TextEncoder().encode('hello'))).toThrow(/not a valid PDF/);
     const damaged = read('synthetic-report.pdf').slice(0, 400);
     await expect(extractDocument('pdf', damaged, 'damaged.pdf')).rejects.toThrow(SourceError);

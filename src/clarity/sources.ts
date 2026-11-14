@@ -4,13 +4,13 @@
  * wrong encoding is reported instead of silently producing replacement characters.
  */
 import { newIdLocal, nowIso, type Source } from './model';
-import { DOCUMENT_MIMES, extractDocument, type DocumentKind } from './extract';
+import { DOCUMENT_MIMES, extractDocument, type DocumentKind, type ExtractOptions } from './extract';
 
 export const TEXT_EXTENSIONS = ['.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.log', '.html', '.htm', '.xml', '.yaml', '.yml'] as const;
 export const IMAGE_MIMES = ['image/png', 'image/jpeg', 'image/webp'] as const;
-export const MAX_TEXT_SOURCE_BYTES = 5 * 1024 * 1024;
+import { MAX_TEXT_SOURCE_BYTES, SourceError } from './common';
 
-export class SourceError extends Error {}
+export { MAX_TEXT_SOURCE_BYTES, SourceError };
 
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>);
@@ -66,8 +66,8 @@ export async function textSourceFromBytes(name: string, bytes: Uint8Array, origi
  * A text source made from a PDF or Word document: the original bytes are what is stored (and
  * hashed); `text` is the extracted text, and `extraction` says how it was obtained.
  */
-export async function documentSourceFromBytes(name: string, bytes: Uint8Array, kind: DocumentKind, origin: Source['origin'] = 'file'): Promise<Source> {
-  const ex = await extractDocument(kind, bytes, name);
+export async function documentSourceFromBytes(name: string, bytes: Uint8Array, kind: DocumentKind, origin: Source['origin'] = 'file', options: ExtractOptions = {}): Promise<Source> {
+  const ex = await extractDocument(kind, bytes, name, options);
   return {
     id: newIdLocal('src'),
     name,
@@ -81,7 +81,7 @@ export async function documentSourceFromBytes(name: string, bytes: Uint8Array, k
     width: 0,
     height: 0,
     note: '',
-    extraction: { from: kind, method: ex.method, pageStartLines: ex.pageStartLines, warnings: ex.warnings },
+    extraction: { from: kind, method: ex.method, pageStartLines: ex.pageStartLines, warnings: ex.warnings, ocrPages: ex.ocrPages ?? [] },
   };
 }
 

@@ -15,7 +15,7 @@ import {
   type SelectionReport,
   type SelectionStrategy,
 } from '../distil';
-import { pagesForLines } from './extract';
+import { pagesWithOcr } from './extract';
 import { excerptRef, newIdLocal, nowIso, type ClarityProject, type Distillation, type Excerpt, type Source, type StrategyId } from './model';
 
 export const STRATEGY_TO_DISTIL: Record<StrategyId, SelectionStrategy> = {
@@ -50,7 +50,7 @@ export function cutExcerpts(sources: Source[], mode: Distillation['splitMode']):
         priority: 2,
         required: b.required,
         text: b.text,
-        pages: s.extraction ? pagesForLines(s.extraction.pageStartLines, b.lineStart, b.lineEnd) : '',
+        pages: s.extraction ? pagesWithOcr(s.extraction, b.lineStart, b.lineEnd) : '',
       });
     }
   }

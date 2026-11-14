@@ -49,6 +49,8 @@ export const SourceSchema = z.object({
       /** 1-based line where each page starts (PDF). */
       pageStartLines: z.array(z.number().int().positive()),
       warnings: z.array(z.string()),
+      /** PDF pages whose text was recognised with OCR (less reliable than a text layer). */
+      ocrPages: z.array(z.number().int().positive()).default([]),
     })
     .nullable()
     .default(null),
