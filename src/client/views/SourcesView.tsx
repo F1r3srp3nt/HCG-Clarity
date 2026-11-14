@@ -1,8 +1,9 @@
 /** Sources: import and organise the material a project works from. Originals are never edited. */
 import { useMemo, useRef, useState, type DragEvent } from 'react';
-import { nowIso, type Source } from '../../clarity/model';
+import { hasText, nowIso, type Source } from '../../clarity/model';
 import { documentKind, MAX_DOCUMENT_BYTES, NeedsOcrError, type ExtractOptions } from '../../clarity/extract';
 import { OCR_LANGUAGES, OcrCancelled, ocrAvailable, type OcrLanguage } from '../../clarity/ocr';
+import { ocrImageSource } from '../../clarity/sources';
 import { documentSourceFromBytes, formatBytes, IMAGE_MIMES, isTextFileName, MAX_TEXT_SOURCE_BYTES, sha256Hex, sourceLines, textSourceFromBytes, textSourceFromPaste } from '../../clarity/sources';
 import { bytesToBlob } from '../../shared/util';
 import { blobUrl, readImageFile } from '../images';
@@ -190,7 +191,7 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
           <h1 id="sources-h">Sources</h1>
           <p className="muted">Import the material you work from. Originals are stored byte-for-byte with a SHA-256 checksum and are never edited. Imported text is treated as untrusted content: instructions inside it are never followed.</p>
         </div>
-        <button className="btn primary" onClick={onNext} disabled={!clarity.sources.some((s) => s.kind === 'text')} title="Distil works on text sources">
+        <button className="btn primary" onClick={onNext} disabled={!clarity.sources.some(hasText)} title="Distil works on text sources">
           Continue to Distil →
         </button>
       </header>
@@ -330,7 +331,7 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
                       <span className="item-title">{s.name}</span>
                       <span className="muted small">
                         {formatBytes(s.bytes)}
-                        {s.kind === 'text' ? ` · ${sourceLines(s.text).length} lines` : ` · ${s.width}×${s.height}`}
+                        {s.kind === 'text' ? ` · ${sourceLines(s.text).length} lines` : ` · ${s.width}×${s.height}${hasText(s) ? ' · OCR text' : ''}`}
                         {(usage.get(s.id)?.length ?? 0) > 0 && ` · used ${usage.get(s.id)!.length}×`}
                       </span>
                     </span>
@@ -354,7 +355,7 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
 }
 
 function SourceDetail({ source, blob, uses, onRemove, onNote }: { source: Source; blob: Blob | undefined; uses: string[]; onRemove: () => void; onNote: (note: string) => void }) {
-  const lines = source.kind === 'text' ? sourceLines(source.text) : [];
+  const lines = hasText(source) ? sourceLines(source.text) : [];
   const ocrPages = new Set(source.extraction?.ocrPages ?? []);
   const pageAt = new Map((source.extraction?.pageStartLines ?? []).map((line, i) => [line, `Page ${i + 1}${ocrPages.has(i + 1) ? ' · OCR' : ''}`]));
   return (
@@ -385,9 +386,19 @@ function SourceDetail({ source, blob, uses, onRemove, onNote }: { source: Source
         <span>Your note about this source</span>
         <input value={source.note} onChange={(e) => onNote(e.target.value)} placeholder="Optional" />
       </label>
+      {source.kind === 'image' && (
+        <>
+          <h3 className="section-title">Original image</h3>
+          <div className="image-preview">{blob ? <img src={blobUrl(blob)} alt={source.note || source.name} /> : <p className="muted">Image data is missing.</p>}</div>
+          <ImageOcrPanel source={source} blob={blob} />
+        </>
+      )}
       {source.extraction && (
         <div className="alert info" data-testid="source-extraction">
-          <b>Extracted text.</b> The original {source.extraction.from === 'pdf' ? 'PDF' : 'Word document'} is stored unchanged (the checksum above is of the original). Below is the text extracted
+          <b>{source.extraction.from === 'image' ? 'Recognised text (OCR).' : 'Extracted text.'}</b>{' '}
+          {source.extraction.from === 'image'
+            ? 'The image is stored unchanged (the checksum above is of the image). Below is the text recognised in it'
+            : `The original ${source.extraction.from === 'pdf' ? 'PDF' : 'Word document'} is stored unchanged (the checksum above is of the original). Below is the text extracted`}{' '}
           with {source.extraction.method}; line numbers and references point into it{source.extraction.from === 'pdf' ? ', and page numbers into the PDF' : ''}.
           {source.extraction.warnings.length > 0 && (
             <ul className="small">
@@ -398,24 +409,97 @@ function SourceDetail({ source, blob, uses, onRemove, onNote }: { source: Source
           )}
         </div>
       )}
-      <h3 className="section-title">
-        {source.extraction ? 'Extracted text (read-only, with the line numbers used by references)' : `Original ${source.kind === 'text' ? '(read-only, with line numbers used by references)' : ''}`}
-      </h3>
-      {source.kind === 'image' ? (
-        <div className="image-preview">{blob ? <img src={blobUrl(blob)} alt={source.note || source.name} /> : <p className="muted">Image data is missing.</p>}</div>
-      ) : (
-        <ol className="source-text" aria-label="Source text">
-          {lines.map((l, i) => (
-            <li key={i} id={`L${i + 1}`} className={pageAt.has(i + 1) ? 'page-start' : undefined} data-page={pageAt.get(i + 1)}>
-              <span className="ln" aria-hidden>
-                {i + 1}
-              </span>
-              <span className="lt">{l || ' '}</span>
-            </li>
-          ))}
-        </ol>
+      {lines.length > 0 && (
+        <>
+          <h3 className="section-title">
+            {source.extraction ? `${source.extraction.from === 'image' ? 'Recognised' : 'Extracted'} text (read-only, with the line numbers used by references)` : 'Original (read-only, with line numbers used by references)'}
+          </h3>
+          <ol className="source-text" aria-label="Source text">
+            {lines.map((l, i) => (
+              <li key={i} id={`L${i + 1}`} className={pageAt.has(i + 1) ? 'page-start' : undefined} data-page={pageAt.get(i + 1)}>
+                <span className="ln" aria-hidden>
+                  {i + 1}
+                </span>
+                <span className="lt">{l || '\u00a0'}</span>
+              </li>
+            ))}
+          </ol>
+        </>
       )}
     </article>
+  );
+}
+
+/** OCR for an image source: recognises its text so Distil can use it. The image itself is unchanged. */
+function ImageOcrPanel({ source, blob }: { source: Source; blob: Blob | undefined }) {
+  const { clarity, updateClarity, toast } = useClarity();
+  const [langs, setLangs] = useState<OcrLanguage[]>(['eng']);
+  const [busy, setBusy] = useState(false);
+  const abort = useRef<AbortController | null>(null);
+  // Re-reading would change the text that existing excerpts point into, so it is blocked while they exist.
+  const usedBy = clarity.distillations.filter((d) => d.excerpts.some((e) => e.sourceId === source.id));
+  const has = hasText(source);
+
+  async function run() {
+    if (!blob) return;
+    const ac = new AbortController();
+    abort.current = ac;
+    setBusy(true);
+    try {
+      const fields = await ocrImageSource(source, blob, { languages: langs, signal: ac.signal });
+      updateClarity((d) => {
+        const s = d.sources.find((x) => x.id === source.id);
+        if (s) Object.assign(s, fields);
+      });
+      toast('success', `Text recognised in "${source.name}". Check it against the image: recognition errors are possible.`);
+    } catch (e) {
+      toast(e instanceof OcrCancelled ? 'info' : 'error', (e as Error).message);
+    } finally {
+      setBusy(false);
+      abort.current = null;
+    }
+  }
+
+  return (
+    <div className="card ocr-card" data-testid="image-ocr">
+      <h3 className="section-title">Text in this image</h3>
+      <p className="muted small">
+        {has
+          ? 'The text below was recognised with OCR. It can be used in Distil; its references are marked “OCR”.'
+          : 'Recognise the text in this image (a screenshot, a photo of a whiteboard or a document) to use it in Distil. OCR runs on this device; nothing is uploaded.'}
+      </p>
+      {usedBy.length > 0 ? (
+        <p className="small">Used by {usedBy.map((d) => `“${d.title}”`).join(', ')}. To read it again, remove those excerpts first (cut the excerpts again without this source), so no reference points to text that changed.</p>
+      ) : (
+        <>
+          <fieldset className="row gap-s wrap" disabled={busy}>
+            <legend className="small">Language of the text</legend>
+            {(Object.keys(OCR_LANGUAGES) as OcrLanguage[]).map((l) => (
+              <label key={l} className="check">
+                <input type="checkbox" checked={langs.includes(l)} onChange={(e) => setLangs((cur) => (e.target.checked ? [...cur, l] : cur.filter((x) => x !== l)))} data-testid={`image-ocr-lang-${l}`} />
+                {OCR_LANGUAGES[l]}
+              </label>
+            ))}
+          </fieldset>
+          <div className="row gap-s">
+            {busy ? (
+              <>
+                <span className="small" role="status" aria-live="polite" data-testid="image-ocr-busy">
+                  Reading the image…
+                </span>
+                <button className="btn small" onClick={() => abort.current?.abort()} data-testid="image-ocr-stop">
+                  Stop
+                </button>
+              </>
+            ) : (
+              <button className="btn primary" onClick={() => void run()} disabled={!blob || !langs.length || !ocrAvailable()} data-testid="image-ocr-run">
+                {has ? 'Recognise again' : 'Recognise text'}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

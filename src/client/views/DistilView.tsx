@@ -7,7 +7,7 @@ import { useMemo, useRef, useState } from 'react';
 import type { ProviderStatus } from '../../shared/apiTypes';
 import { slugify } from '../../shared/util';
 import { allContextCategories, metricLabel, outcomeExplanation, outcomeTitle, SecretScanner, strategySummary, variantLabel, type SelectionReport } from '../../distil';
-import { excerptRef, newIdLocal, nowIso, STRATEGY_IDS, type Distillation, type Excerpt, type PromptDoc, type Source } from '../../clarity/model';
+import { excerptRef, hasText, newIdLocal, nowIso, STRATEGY_IDS, type Distillation, type Excerpt, type PromptDoc, type Source } from '../../clarity/model';
 import { compareDistillation, cutExcerpts, excerptMatchesSource, keptExcerpts, newDistillation, runDistillation, STRATEGY_LABEL, STRATEGY_TO_DISTIL } from '../../clarity/distil';
 import { validateNotes } from '../../clarity/notes';
 import { api, describeError } from '../api';
@@ -18,7 +18,7 @@ export function DistilView({ status, onOpenSetup, onNext }: { status: ProviderSt
   const { clarity, updateClarity, toast } = useClarity();
   const [activeId, setActiveId] = useState<string | null>(clarity.distillations[clarity.distillations.length - 1]?.id ?? null);
   const active = clarity.distillations.find((d) => d.id === activeId) ?? null;
-  const textSources = clarity.sources.filter((s) => s.kind === 'text');
+  const textSources = clarity.sources.filter(hasText);
 
   function create() {
     if (!textSources.length) return;
@@ -53,7 +53,7 @@ export function DistilView({ status, onOpenSetup, onNext }: { status: ProviderSt
       {textSources.length === 0 ? (
         <div className="empty card">
           <h2>No text sources yet</h2>
-          <p className="muted">Add text, Markdown or other text files under Sources first.</p>
+          <p className="muted">Add text, PDF or Word files under Sources first, or recognise the text in an image there (OCR).</p>
         </div>
       ) : (
         <div className="split">
@@ -128,7 +128,7 @@ function DistillationEditor({ d, status, onOpenSetup, onRemove, onNext }: { d: D
   const chosen = new Set(d.sourceIds);
   const recutNeeded = useMemo(() => {
     const cutFrom = new Set(d.excerpts.map((e) => e.sourceId));
-    const textChosen = d.sourceIds.filter((id) => sourcesById.get(id)?.kind === 'text');
+    const textChosen = d.sourceIds.filter((id) => { const s = sourcesById.get(id); return s ? hasText(s) : false; });
     return textChosen.some((id) => !cutFrom.has(id)) || [...cutFrom].some((id) => !chosen.has(id)) || d.excerpts.length === 0;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [d.excerpts, d.sourceIds, clarity.sources]);
@@ -215,9 +215,12 @@ function DistillationEditor({ d, status, onOpenSetup, onRemove, onNext }: { d: D
 
       <div className="card">
         <h3 className="section-title">Sources</h3>
+        {clarity.sources.some((s) => s.kind === 'image' && !hasText(s)) && (
+          <p className="muted small">Images appear here once their text has been recognised (Sources › select the image › Recognise text).</p>
+        )}
         <ul className="check-list">
           {clarity.sources
-            .filter((s) => s.kind === 'text')
+            .filter(hasText)
             .map((s) => (
               <li key={s.id}>
                 <label className="check">

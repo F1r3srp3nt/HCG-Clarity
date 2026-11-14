@@ -16,7 +16,7 @@ import {
   type SelectionStrategy,
 } from '../distil';
 import { pagesWithOcr } from './extract';
-import { excerptRef, newIdLocal, nowIso, type ClarityProject, type Distillation, type Excerpt, type Source, type StrategyId } from './model';
+import { hasText, excerptRef, newIdLocal, nowIso, type ClarityProject, type Distillation, type Excerpt, type Source, type StrategyId } from './model';
 
 export const STRATEGY_TO_DISTIL: Record<StrategyId, SelectionStrategy> = {
   full: 'baseline',
@@ -36,7 +36,7 @@ export const STRATEGY_LABEL: Record<StrategyId, string> = {
 export function cutExcerpts(sources: Source[], mode: Distillation['splitMode']): Excerpt[] {
   const out: Excerpt[] = [];
   for (const s of sources) {
-    if (s.kind !== 'text') continue;
+    if (!hasText(s)) continue;
     const blocks = mode === 'whole' ? ContextSplitter.keepAsOneBlock(s.text, s.name) : ContextSplitter.split(s.text);
     for (const b of blocks) {
       out.push({
@@ -59,7 +59,7 @@ export function cutExcerpts(sources: Source[], mode: Distillation['splitMode']):
 
 /** Checks an excerpt against its source: true when the source still has exactly these lines. */
 export function excerptMatchesSource(e: Excerpt, source: Source | undefined): boolean {
-  if (!source || source.kind !== 'text') return false;
+  if (!source || !hasText(source)) return false;
   const lines = source.text.split('\n').slice(e.lineStart - 1, e.lineEnd).join('\n');
   // A CRLF source: the splitter leaves out the final "\r" of the last line (as Distil does).
   return lines === e.text || lines === `${e.text}\r`;
@@ -67,7 +67,7 @@ export function excerptMatchesSource(e: Excerpt, source: Source | undefined): bo
 
 export function newDistillation(project: ClarityProject, sourceIds: string[]): Distillation {
   const t = nowIso();
-  const sources = project.sources.filter((s) => sourceIds.includes(s.id));
+  const sources = project.sources.filter((s) => sourceIds.includes(s.id) && hasText(s));
   return {
     id: newIdLocal('dst'),
     title: `Distillation ${project.distillations.length + 1}`,

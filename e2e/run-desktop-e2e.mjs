@@ -353,7 +353,7 @@ try {
     assert.ok(Object.keys(zip.files).some((f) => f.endsWith('.mp3')));
   });
 
-  await step('PDF import and OCR work in the packaged app (pdf.js and Tesseract under the app CSP)', async () => {
+  await step('PDF import and OCR (scanned PDF, image) work in the packaged app under its CSP', async () => {
     await page.click('[data-testid=nav-sources]');
     await page.setInputFiles('[data-testid=source-input]', [join(root, 'tests', 'fixtures', 'docs', 'synthetic-report.pdf')]);
     await page.locator('[data-testid=source-item]', { hasText: 'synthetic-report.pdf' }).click({ timeout: 30000 });
@@ -365,6 +365,11 @@ try {
     await page.locator('[data-testid=source-item]', { hasText: 'scanned-report.pdf' }).click({ timeout: 120000 });
     assert.match(await page.locator('[data-testid=source-extraction]').innerText(), /Tesseract OCR \(English\)/);
     assert.ok((await page.locator('.source-text').innerText()).replace(/\s+/g, ' ').includes('Never retry 400 or 413'));
+    // An image source: its text recognised on demand.
+    await page.setInputFiles('[data-testid=source-input]', [join(root, 'tests', 'fixtures', 'docs', 'note-photo.png')]);
+    await page.locator('[data-testid=source-item]', { hasText: 'note-photo.png' }).click();
+    await page.click('[data-testid=image-ocr-run]');
+    await page.locator('[data-testid=source-extraction]', { hasText: 'Recognised text (OCR)' }).waitFor({ timeout: 60000 });
     await page.click('[data-testid=nav-create]');
     await page.click('[data-testid=open-deck]');
   });
