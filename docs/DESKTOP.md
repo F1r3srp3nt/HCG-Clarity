@@ -4,8 +4,12 @@
 > shell is unchanged apart from the product name, the `.clarity` project extension (the open dialog
 > also accepts `.pstudio`, Distil `.json` and RePrompter backup `.json` files for migration) and
 > three more save-dialog file kinds (Markdown, text and JSON outputs).
-> **Verified in this repository:** the Linux packaged build (`npm run desktop:pack` then
-> `npm run desktop:test`, 14/14 steps). **Not verified here:** the macOS `.app`/DMG build and any run on a Mac.
+> **Verified:** the Linux packaged build (`npm run desktop:pack` then `npm run desktop:test`,
+> 14/14 steps, in the development container) and the macOS Apple Silicon `.app` + DMG
+> (`npm run desktop:dist:mac`, signature/bundle/fuse checks, then the packaged-app test, 14/14 steps,
+> on GitHub's `macos-15` runner in [CI run 43546700506](https://github.com/F1r3srp3nt/HCG-Clarity/actions/runs/43546700506)).
+> **Not verified:** use by a person on a Mac (real Keychain prompts, Gatekeeper, microphone),
+> notarised distribution, and Windows.
 
 HCG Clarity also runs as a standalone desktop app (Electron). On the user's Mac it is a
 normal `HCG Clarity.app`: double-click to open. No Terminal, browser tab, npm command or
