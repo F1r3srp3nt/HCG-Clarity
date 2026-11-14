@@ -109,3 +109,6 @@
 .source-text li.page-start { border-top: 1px dashed var(--line); margin-top: 6px; padding-top: 6px; position: relative; }
 .source-text li.page-start::before { content: attr(data-page); position: absolute; right: 10px; top: 4px; font-size: 10.5px; color: var(--muted); }
 .kind-tag.text { min-width: 3.4em; text-align: center; }
+.ocr-card { border-color: rgba(251, 191, 36, 0.45); display: flex; flex-direction: column; gap: 10px; }
+.ocr-card fieldset { border: 0; padding: 0; margin: 0; }
+.ocr-card legend { margin-bottom: 4px; color: var(--text-2); }

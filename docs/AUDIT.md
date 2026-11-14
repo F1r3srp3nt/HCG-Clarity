@@ -162,4 +162,7 @@ API exists to reuse.
   pdf.js (Apache-2.0) and mammoth (BSD-2-Clause); the original file is what is stored and hashed,
   the extracted text is recorded on the source with the method used, and PDF excerpts carry page
   numbers. Scanned PDFs (no text layer), `.doc`, PowerPoint and RTF remain unsupported.
-
+- **OCR for scanned PDFs.** Pages without a text layer can be read with Tesseract (tesseract.js,
+  WebAssembly, Apache-2.0) on the user's device after confirmation, in English and/or Norwegian.
+  All OCR files are served by the app; the desktop CSP gained `'wasm-unsafe-eval'` for this. OCR
+  pages are recorded on the source and marked `(OCR)` in references; confidence is reported.

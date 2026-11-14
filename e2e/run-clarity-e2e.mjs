@@ -304,15 +304,19 @@ try {
     await c2.close();
   });
 
-  await step('PDF and Word import: extracted text with page references; a scan is refused', async () => {
+  await step('PDF and Word import: extracted text with page references; a scan asks about OCR', async () => {
     const p = await ctx.newPage();
     const pageErrors = [];
     p.on('pageerror', (e) => pageErrors.push(String(e)));
     await p.goto(plain.url);
     const docs = join(root, 'tests', 'fixtures', 'docs');
     await p.setInputFiles('[data-testid=source-input]', [join(docs, 'synthetic-report.pdf'), join(docs, 'synthetic-report.docx'), join(docs, 'image-only.pdf')]);
-    await p.locator('.toast.error', { hasText: 'image-only.pdf' }).waitFor({ timeout: 30000 });
-    assert.match(await p.locator('.toast.error', { hasText: 'image-only.pdf' }).innerText(), /no extractable text.*OCR/);
+    // A PDF without a text layer is not imported silently: the user is asked about OCR.
+    await p.locator('[data-testid=ocr-prompt]').waitFor({ timeout: 30000 });
+    assert.match(await p.locator('[data-testid=ocr-prompt]').innerText(), /image-only\.pdf" has no text layer/);
+    assert.equal(await p.locator('[data-testid=ocr-skip-pages]').count(), 0, 'no "without those pages" option when no page has text');
+    await p.click('[data-testid=ocr-cancel]');
+    assert.equal(await p.locator('[data-testid=ocr-prompt]').count(), 0);
     assert.equal(await p.locator('[data-testid=source-item]').count(), 2);
     await p.locator('[data-testid=source-item]', { hasText: 'synthetic-report.pdf' }).click();
     assert.match(await p.locator('[data-testid=source-extraction]').innerText(), /Extracted text\..*pdf\.js/s);
@@ -333,6 +337,56 @@ try {
     const md = readFileSync(briefPath, 'utf8');
     assert.match(md, /Source: \*\*synthetic-report\.pdf · p\. 2/);
     assert.match(md, /text extracted with pdf\.js/);
+    assert.deepEqual(pageErrors, []);
+    await p.close();
+  });
+
+  await step('OCR: a scanned PDF is read on this device after confirmation; Stop cancels; mixed PDFs can skip scanned pages', async () => {
+    const p = await ctx.newPage();
+    const pageErrors = [];
+    const external = [];
+    p.on('pageerror', (e) => pageErrors.push(String(e)));
+    p.on('request', (r) => {
+      const u = new URL(r.url());
+      if (!['127.0.0.1', 'localhost'].includes(u.hostname) && !['blob:', 'data:'].includes(u.protocol)) external.push(r.url());
+    });
+    await p.goto(plain.url);
+    const docs = join(root, 'tests', 'fixtures', 'docs');
+    await p.setInputFiles('[data-testid=source-input]', [join(docs, 'scanned-report.pdf')]);
+    await p.locator('[data-testid=ocr-prompt]').waitFor({ timeout: 30000 });
+    await p.screenshot({ path: join(out, '9-ocr-prompt.png') });
+    await p.click('[data-testid=ocr-run]');
+    await p.locator('[data-testid=source-item]', { hasText: 'scanned-report.pdf' }).waitFor({ timeout: 120000 });
+    await p.locator('[data-testid=source-item]', { hasText: 'scanned-report.pdf' }).click();
+    const notice = await p.locator('[data-testid=source-extraction]').innerText();
+    assert.match(notice, /Tesseract OCR \(English\)/);
+    assert.match(notice, /read with OCR \(English\); average confidence \d+%/);
+    assert.equal(await p.locator('.source-text li[data-page="Page 2 · OCR"]').count(), 1);
+    const text = (await p.locator('.source-text').innerText()).replace(/\s+/g, ' ');
+    assert.ok(text.includes('Never retry 400 or 413: the request itself is wrong.'), 'OCR text');
+    await p.screenshot({ path: join(out, '10-ocr-source.png') });
+
+    // Mixed PDF: start OCR, stop it, then import only the pages that have text.
+    await p.setInputFiles('[data-testid=source-input]', [join(docs, 'mixed-report.pdf')]);
+    await p.locator('[data-testid=ocr-prompt]').waitFor({ timeout: 30000 });
+    assert.match(await p.locator('[data-testid=ocr-prompt]').innerText(), /1 of 2 pages of "mixed-report\.pdf" have no text layer/);
+    await p.click('[data-testid=ocr-run]');
+    await p.locator('[data-testid=ocr-stop]').waitFor();
+    await p.click('[data-testid=ocr-stop]');
+    await p.locator('.toast', { hasText: 'Text recognition was stopped' }).waitFor({ timeout: 30000 });
+    assert.equal(await p.locator('[data-testid=source-item]', { hasText: 'mixed-report.pdf' }).count(), 0, 'nothing added after Stop');
+    await p.click('[data-testid=ocr-skip-pages]');
+    await p.locator('[data-testid=source-item]', { hasText: 'mixed-report.pdf' }).click({ timeout: 30000 });
+    assert.match(await p.locator('[data-testid=source-extraction]').innerText(), /No text on page 2 .*imported without OCR/s);
+
+    // References from OCR text say so.
+    await p.click('[data-testid=nav-distil]');
+    await p.click('[data-testid=distil-new]');
+    await p.locator('[data-testid=distil-outcome]').waitFor();
+    const refs = await p.locator('[data-testid=excerpt-ref]').allInnerTexts();
+    assert.ok(refs.some((r) => /^scanned-report\.pdf · p\. 2 \(OCR\) · lines? \d/.test(r)), refs.join(' | '));
+    assert.ok(refs.some((r) => /^mixed-report\.pdf · p\. 1 · lines? \d/.test(r)));
+    assert.deepEqual(external, [], 'OCR must not fetch anything from outside the app');
     assert.deepEqual(pageErrors, []);
     await p.close();
   });

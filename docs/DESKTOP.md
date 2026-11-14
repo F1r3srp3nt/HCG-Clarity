@@ -56,6 +56,11 @@ for it (3 seconds at most, then kills it) and exits. Closing with unsaved change
 - Navigation away from the app is blocked. `https` links open in the default browser. New
   windows, `<webview>` and downloads are blocked (files are written only through the save dialog).
   The only permission granted is the microphone, for the spoken brief.
+- The Content-Security-Policy allows scripts only from the app itself. It includes
+  `'wasm-unsafe-eval'` so that on-device OCR can compile its WebAssembly; JavaScript `eval` and
+  inline scripts stay blocked. (Verified: without it the packaged-app OCR test fails.) The OCR
+  worker, core and language data are served from the app bundle (`app://studio/ocr/`), never from
+  the network.
 - Electron fuses (set in `desktop/build/after-pack.cjs`): no `ELECTRON_RUN_AS_NODE`, no
   `NODE_OPTIONS`, no `--inspect`, app code only from the integrity-checked `app.asar`, encrypted
   cookies. DevTools are off in packaged builds.

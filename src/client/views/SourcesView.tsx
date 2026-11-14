@@ -1,7 +1,8 @@
 /** Sources: import and organise the material a project works from. Originals are never edited. */
 import { useMemo, useRef, useState, type DragEvent } from 'react';
 import { nowIso, type Source } from '../../clarity/model';
-import { documentKind, MAX_DOCUMENT_BYTES } from '../../clarity/extract';
+import { documentKind, MAX_DOCUMENT_BYTES, NeedsOcrError, type ExtractOptions } from '../../clarity/extract';
+import { OCR_LANGUAGES, OcrCancelled, ocrAvailable, type OcrLanguage } from '../../clarity/ocr';
 import { documentSourceFromBytes, formatBytes, IMAGE_MIMES, isTextFileName, MAX_TEXT_SOURCE_BYTES, sha256Hex, sourceLines, textSourceFromBytes, textSourceFromPaste } from '../../clarity/sources';
 import { bytesToBlob } from '../../shared/util';
 import { blobUrl, readImageFile } from '../images';
@@ -9,7 +10,7 @@ import { useClarity } from '../state';
 
 const ACCEPT = ['.pdf', '.docx', '.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.log', '.html', '.htm', '.xml', '.yaml', '.yml', ...IMAGE_MIMES].join(',');
 
-export async function sourceFromFile(file: File): Promise<{ source: Source; blob: Blob }> {
+export async function sourceFromFile(file: File, options: ExtractOptions = {}): Promise<{ source: Source; blob: Blob }> {
   const lower = file.name.toLowerCase();
   if ((IMAGE_MIMES as readonly string[]).includes(file.type === 'image/jpg' ? 'image/jpeg' : file.type)) {
     const { asset, blob } = await readImageFile(file);
@@ -34,7 +35,7 @@ export async function sourceFromFile(file: File): Promise<{ source: Source; blob
     if (file.size > MAX_DOCUMENT_BYTES) throw new Error(`"${file.name}" is larger than 50 MB.`);
     const bytes = new Uint8Array(await file.arrayBuffer());
     const kind = documentKind(file.name, bytes)!;
-    const source = await documentSourceFromBytes(file.name, bytes, kind, 'file');
+    const source = await documentSourceFromBytes(file.name, bytes, kind, 'file', options);
     return { source, blob: bytesToBlob(bytes, source.mime) };
   }
   if (lower.endsWith('.doc')) {
@@ -61,6 +62,11 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
   const [pasteText, setPasteText] = useState('');
   const [filter, setFilter] = useState('');
   const [reading, setReading] = useState<string | null>(null);
+  /** Scanned PDFs waiting for the user's OCR decision, first one shown. */
+  const [ocrQueue, setOcrQueue] = useState<{ file: File; need: NeedsOcrError }[]>([]);
+  const [ocrLangs, setOcrLangs] = useState<OcrLanguage[]>(['eng']);
+  const [ocrProgress, setOcrProgress] = useState<{ done: number; total: number } | null>(null);
+  const ocrAbort = useRef<AbortController | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const selected = clarity.sources.find((s) => s.id === selectedId) ?? null;
 
@@ -73,28 +79,68 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
     return m;
   }, [clarity]);
 
+  // Checksums of sources added in this session, so a burst of files is de-duplicated before state updates land.
+  const known = useRef(new Set<string>());
+
+  function addSource(source: Source, blob: Blob, fileName: string): boolean {
+    const have = new Set([...clarity.sources.map((s) => s.sha256), ...known.current]);
+    if (have.has(source.sha256)) {
+      toast('info', `"${fileName}" is already in Sources (identical content), so it was not added again.`);
+      return false;
+    }
+    known.current.add(source.sha256);
+    putBinary(source.id, blob);
+    updateClarity((d) => void d.sources.push(source));
+    setSelectedId(source.id);
+    return true;
+  }
+
   async function addFiles(files: FileList | File[]) {
     let added = 0;
-    const known = new Set(clarity.sources.map((s) => s.sha256));
+    const waiting: { file: File; need: NeedsOcrError }[] = [];
     for (const f of Array.from(files)) {
       try {
         setReading(f.name);
         const { source, blob } = await sourceFromFile(f);
-        if (known.has(source.sha256)) {
-          toast('info', `"${f.name}" is already in Sources (identical content), so it was not added again.`);
-          continue;
-        }
-        known.add(source.sha256);
-        putBinary(source.id, blob);
-        updateClarity((d) => void d.sources.push(source));
-        setSelectedId(source.id);
-        added++;
+        if (addSource(source, blob, f.name)) added++;
       } catch (e) {
-        toast('error', (e as Error).message);
+        if (e instanceof NeedsOcrError) waiting.push({ file: f, need: e });
+        else toast('error', (e as Error).message);
       }
     }
     setReading(null);
+    if (waiting.length) setOcrQueue((q) => [...q, ...waiting]);
     if (added) toast('success', `Added ${added} source${added === 1 ? '' : 's'}. Originals are kept exactly as imported.`);
+  }
+
+  /** Imports the first queued scanned PDF, with OCR or (when it has some text) without. */
+  async function resolveOcr(useOcr: boolean) {
+    const item = ocrQueue[0];
+    if (!item) return;
+    const ac = new AbortController();
+    ocrAbort.current = ac;
+    try {
+      setReading(item.file.name);
+      if (useOcr) setOcrProgress({ done: 0, total: item.need.emptyPages.length });
+      const { source, blob } = await sourceFromFile(
+        item.file,
+        useOcr ? { ocr: { languages: ocrLangs, signal: ac.signal, onProgress: (done, total) => setOcrProgress({ done, total }) } } : { ocr: false },
+      );
+      if (addSource(source, blob, item.file.name)) {
+        toast('success', useOcr ? `Added "${item.file.name}" with OCR text. Check it against the original: recognition errors are possible.` : `Added "${item.file.name}" without the pages that have no text.`);
+      }
+      setOcrQueue((q) => q.slice(1));
+    } catch (e) {
+      if (e instanceof OcrCancelled) toast('info', e.message);
+      else {
+        toast('error', (e as Error).message);
+        setOcrQueue((q) => q.slice(1));
+      }
+    } finally {
+      setReading(null);
+      setOcrProgress(null);
+      ocrAbort.current = null;
+    }
   }
 
   async function addPaste() {
@@ -166,7 +212,7 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
           data-testid="source-drop"
         >
           <strong>Drop files here or click to choose</strong>
-          <span className="muted small">PDF and Word (.docx) up to 50 MB · text (.txt, .md, .csv, .json, .html…) up to 5 MB · PNG, JPEG, WebP images up to 25 MB</span>
+          <span className="muted small">PDF (scans via on-device OCR) and Word (.docx) up to 50 MB · text (.txt, .md, .csv, .json, .html…) up to 5 MB · PNG, JPEG, WebP images up to 25 MB</span>
           {reading && (
             <span className="small" role="status" aria-live="polite" data-testid="source-reading">
               Reading “{reading}”…
@@ -189,6 +235,61 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
           Paste text…
         </button>
       </div>
+
+      {ocrQueue[0] && (
+        <div className="card ocr-card" role="region" aria-label="Text recognition" data-testid="ocr-prompt">
+          <h2 className="section-title">Text recognition (OCR)</h2>
+          <p>
+            <b>{ocrQueue[0].need.message}</b>
+          </p>
+          <p className="muted small">
+            OCR runs on this device; nothing is uploaded. It takes a few seconds per page ({ocrQueue[0].need.emptyPages.length} page
+            {ocrQueue[0].need.emptyPages.length === 1 ? '' : 's'} to read). Recognised text can contain errors, so it is marked “OCR” in references. The original PDF is kept unchanged.
+            {ocrQueue.length > 1 && ` ${ocrQueue.length - 1} more file(s) are waiting.`}
+          </p>
+          <fieldset className="row gap-s wrap" disabled={ocrProgress !== null}>
+            <legend className="small">Language of the document</legend>
+            {(Object.keys(OCR_LANGUAGES) as OcrLanguage[]).map((l) => (
+              <label key={l} className="check">
+                <input
+                  type="checkbox"
+                  checked={ocrLangs.includes(l)}
+                  onChange={(e) => setOcrLangs((cur) => (e.target.checked ? [...cur, l] : cur.filter((x) => x !== l)))}
+                  data-testid={`ocr-lang-${l}`}
+                />
+                {OCR_LANGUAGES[l]}
+              </label>
+            ))}
+          </fieldset>
+          {ocrProgress ? (
+            <div className="row gap-s" aria-live="polite">
+              <span className="small" data-testid="ocr-progress">
+                Reading page {Math.min(ocrProgress.done + 1, ocrProgress.total)} of {ocrProgress.total}…
+              </span>
+              <div className="bar grow" aria-hidden>
+                <div style={{ width: `${(ocrProgress.done / Math.max(1, ocrProgress.total)) * 100}%` }} />
+              </div>
+              <button className="btn small" onClick={() => ocrAbort.current?.abort()} data-testid="ocr-stop">
+                Stop
+              </button>
+            </div>
+          ) : (
+            <div className="row gap-s wrap">
+              <button className="btn primary" onClick={() => void resolveOcr(true)} disabled={!ocrLangs.length || !ocrAvailable() || reading !== null} data-testid="ocr-run">
+                Recognise text
+              </button>
+              {ocrQueue[0].need.hasText && (
+                <button className="btn" onClick={() => void resolveOcr(false)} disabled={reading !== null} data-testid="ocr-skip-pages">
+                  Import without those pages
+                </button>
+              )}
+              <button className="btn ghost" onClick={() => setOcrQueue((q) => q.slice(1))} disabled={reading !== null} data-testid="ocr-cancel">
+                Don’t import
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {pasteOpen && (
         <div className="card" data-testid="paste-form">
@@ -254,7 +355,8 @@ export function SourcesView({ onNext }: { onNext: () => void }) {
 
 function SourceDetail({ source, blob, uses, onRemove, onNote }: { source: Source; blob: Blob | undefined; uses: string[]; onRemove: () => void; onNote: (note: string) => void }) {
   const lines = source.kind === 'text' ? sourceLines(source.text) : [];
-  const pageAt = new Map((source.extraction?.pageStartLines ?? []).map((line, i) => [line, `Page ${i + 1}`]));
+  const ocrPages = new Set(source.extraction?.ocrPages ?? []);
+  const pageAt = new Map((source.extraction?.pageStartLines ?? []).map((line, i) => [line, `Page ${i + 1}${ocrPages.has(i + 1) ? ' · OCR' : ''}`]));
   return (
     <article aria-label={`Source ${source.name}`} data-testid="source-detail">
       <div className="row between wrap gap-s">

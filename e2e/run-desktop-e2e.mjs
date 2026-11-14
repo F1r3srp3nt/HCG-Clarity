@@ -353,12 +353,18 @@ try {
     assert.ok(Object.keys(zip.files).some((f) => f.endsWith('.mp3')));
   });
 
-  await step('PDF import works in the packaged app (pdf.js worker under the app CSP)', async () => {
+  await step('PDF import and OCR work in the packaged app (pdf.js and Tesseract under the app CSP)', async () => {
     await page.click('[data-testid=nav-sources]');
     await page.setInputFiles('[data-testid=source-input]', [join(root, 'tests', 'fixtures', 'docs', 'synthetic-report.pdf')]);
     await page.locator('[data-testid=source-item]', { hasText: 'synthetic-report.pdf' }).click({ timeout: 30000 });
     assert.match(await page.locator('[data-testid=source-extraction]').innerText(), /pdf\.js/);
     assert.equal(await page.locator('.source-text li.page-start').count(), 2);
+    // A scanned PDF: on-device OCR (WebAssembly) under the app's CSP, files served from app://.
+    await page.setInputFiles('[data-testid=source-input]', [join(root, 'tests', 'fixtures', 'docs', 'scanned-report.pdf')]);
+    await page.click('[data-testid=ocr-run]', { timeout: 30000 });
+    await page.locator('[data-testid=source-item]', { hasText: 'scanned-report.pdf' }).click({ timeout: 120000 });
+    assert.match(await page.locator('[data-testid=source-extraction]').innerText(), /Tesseract OCR \(English\)/);
+    assert.ok((await page.locator('.source-text').innerText()).replace(/\s+/g, ' ').includes('Never retry 400 or 413'));
     await page.click('[data-testid=nav-create]');
     await page.click('[data-testid=open-deck]');
   });

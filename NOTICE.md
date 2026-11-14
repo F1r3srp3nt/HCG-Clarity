@@ -35,7 +35,12 @@ for the desktop backend bundle, in `build/desktop/backend.cjs.LEGAL.txt` when bu
 | react, react-dom | 19.3.1 | MIT |
 | tsx | 4.23.15 | MIT |
 | zod | 4.6.7 | MIT |
+| tesseract.js (on-device OCR) | 7.0.0 | Apache-2.0; its dependencies: bmp-js 0.1.0, is-url 1.2.4, node-fetch 2.7.0, regenerator-runtime 0.13.11, zlibjs 0.3.1 (MIT), idb-keyval 6.3.0, wasm-feature-detect 1.10.1 (Apache-2.0) |
+| tesseract.js-core (Tesseract OCR engine compiled to WebAssembly; includes Tesseract and Leptonica) | 7.0.0 | Apache-2.0 (Leptonica: BSD-2-Clause-style) |
+| @tesseract.js-data/eng, @tesseract.js-data/nor (OCR language data, `4.0.0_best_int`) | 1.0.0 | MIT packaging of the Tesseract `tessdata` models (Apache-2.0) |
 | electron (desktop app) | 44.9.3 | MIT; bundles Chromium (see `LICENSES.chromium.html` in the packaged app) |
+
+Node tests only: @napi-rs/canvas 1.1.1 (MIT; optional dependency of pdfjs-dist, used to render PDF pages for OCR outside the browser).
 
 Development-only: vite, vitest, typescript (Apache-2.0), playwright (Apache-2.0), electron-builder,
 @electron/fuses, esbuild, concurrently and type packages (MIT unless stated).

@@ -7,14 +7,14 @@ python-pptx 1.0.2, LibreOffice. All provider traffic went to the local **mock** 
 | Command | Result |
 |---|---|
 | `npm run typecheck` (client, server, desktop) | Pass, no errors |
-| `npm test` | **287 passed, 3 skipped**, 0 failed (16 files) |
+| `npm test` | **293 passed, 3 skipped**, 0 failed (17 files) |
 | — of which `tests/distil` (Distil port) | 74 passed, 3 skipped |
 | — of which `tests/refine` (RePrompter port) | 98 passed |
-| — of which `tests/clarity` (new) | 37 passed |
+| — of which `tests/clarity` (new) | 43 passed |
 | — of which Presentation Studio tests | 78 passed |
-| `npm run test:e2e:clarity` | **19/19** browser steps |
+| `npm run test:e2e:clarity` | **20/20** browser steps |
 | `npm run test:e2e` | **27/27** browser steps |
-| `npm run desktop:pack` + `npm run desktop:test` (packaged Linux Electron app, own Xvfb) | **15/15** steps (includes PDF import with the pdf.js worker under the app's CSP) |
+| `npm run desktop:pack` + `npm run desktop:test` (packaged Linux Electron app, own Xvfb) | **15/15** steps (includes PDF import and OCR under the app's CSP) |
 | `./scripts/check-no-secrets.sh` | Pass |
 
 **CI** ([run 43546700506](https://github.com/F1r3srp3nt/HCG-Clarity/actions/runs/43546700506), commit `a359fb0`, GitHub-hosted runners): all four jobs passed —
@@ -30,7 +30,7 @@ not ported (SampleProject, Evaluation/ProjectCodec, Experiment validation).
 
 | Requirement | Covered by |
 |---|---|
-| Importing supported source material | e2e “Sources: import…” (text + image; damaged PDF, PowerPoint and duplicate refused with messages) and “PDF and Word import” (extracted text, page dividers, page references in Distil and the brief, scanned PDF refused); `tests/clarity/extract.test.ts` (extraction, page mapping, original bytes kept, damaged/fake files); `tests/clarity/workflow.test.ts` “sources” (strict UTF-8, BOM, empty) |
+| Importing supported source material | e2e “Sources: import…” (text + image; damaged PDF, PowerPoint and duplicate refused with messages) and “PDF and Word import” (extracted text, page dividers, page references in Distil and the brief, scanned PDF refused); `tests/clarity/extract.test.ts` (extraction, page mapping, original bytes kept, damaged/fake files); OCR: `tests/clarity/ocr.test.ts` (scanned and mixed PDFs, OCR labels in references, progress, cancellation) and the e2e “OCR” step (confirmation, Stop, mixed PDF without scanned pages, no request outside the app); `tests/clarity/workflow.test.ts` “sources” (strict UTF-8, BOM, empty) |
 | Saving and reopening a project | `tests/clarity/projectFile.test.ts` “save and reopen” (byte-identical sources/images/outputs, revisions, links, same selection result); e2e “Reopen in a fresh page…”; desktop e2e save/open dialogs |
 | Distilling without losing provenance | `workflow.test.ts` excerpts equal the exact source lines (incl. CRLF, fences), demo reproduces 323 → 221; e2e checks every reference names valid lines; notes with fabricated quotes are marked unverified (unit, server and e2e); brief keeps excerpts verbatim with references |
 | Refining and preserving prompt revisions | `workflow.test.ts` “Refine revisions”; e2e local format → manual edit → AI → restore = 5 revisions, diff view, reopened with 5 revisions |
@@ -49,4 +49,5 @@ not ported (SampleProject, Evaluation/ProjectCodec, Experiment validation).
 - Any run of the macOS app by a person on a Mac (the CI runner drives it automatically, with a
   test keystore instead of the real Keychain), notarised distribution, and Windows.
 - Microsoft PowerPoint and Keynote; screen readers; very large projects.
-- PDF and Word extraction was tested with synthetic files made by LibreOffice. Real-world documents (multi-column layouts, tables, right-to-left text, unusual fonts or encodings) may extract in a different reading order or with gaps; the source view shows the extracted text so it can be checked.
+- PDF, Word and OCR were tested with synthetic files (made by LibreOffice; the scans are those pages rasterised at 150 dpi). Real scans (skewed, low-contrast, handwritten, mixed languages) will recognise less accurately.
+- Real-world documents (multi-column layouts, tables, right-to-left text, unusual fonts or encodings) may extract in a different reading order or with gaps; the source view shows the extracted text so it can be checked.
